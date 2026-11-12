@@ -300,6 +300,9 @@ def transcribe_audio_groq(audio_path: str, srt_output_path: str = None) -> dict:
 # ---------------------------------------------------------------------------
 
 KNOWN_SPEAKERS = {
+    "mario alonso puig": {"name": "Dr Mario", "title": "Médico, Cirujano y Autor"},
+    "dr mario": {"name": "Dr Mario", "title": "Médico, Cirujano y Autor"},
+    "dr. mario": {"name": "Dr Mario", "title": "Médico, Cirujano y Autor"},
     "david goggins": {"name": "David Goggins", "title": "Ultra-Endurance Athlete & Author"},
     "jocko willink": {"name": "Jocko Willink", "title": "Retired Navy SEAL Commander & Author"},
     "steve jobs": {"name": "Steve Jobs", "title": "Visionary & Apple Co-Founder"},
@@ -338,9 +341,9 @@ def detect_speaker_info(video_title: str, video_desc: str, transcript: str) -> d
         prompt = (
             "You are an expert in motivational speeches and personal development podcasts.\n"
             "Given the video title, description, and transcript snippet below, identify:\n"
-            "1. The primary speaker's full name (e.g. 'David Goggins', 'Steve Jobs', 'Kobe Bryant', 'Jordan Peterson').\n"
-            "2. A short 2-4 word professional descriptor (e.g. 'Author & Athlete', 'Visionary & Entrepreneur', 'Stoic Philosopher').\n"
-            "If the speaker is unknown or anonymous, return 'Motivational Speaker'.\n\n"
+            "1. The primary speaker's name (e.g. 'Dr Mario', 'David Goggins', 'Jordan Peterson').\n"
+            "2. A short 2-4 word professional descriptor in SPANISH (e.g. 'Médico, Cirujano y Autor', 'Psicólogo y Escritor', 'Filósofo Estoico').\n"
+            "If the speaker is unknown or anonymous, return 'Líder Motivacional'.\n\n"
             f"TITLE: {video_title}\n"
             f"DESCRIPTION SNIPPET: {video_desc[:400]}\n"
             f"TRANSCRIPT SNIPPET: {transcript[:500]}\n\n"
@@ -354,8 +357,8 @@ def detect_speaker_info(video_title: str, video_desc: str, transcript: str) -> d
         )
         data = json.loads(resp.choices[0].message.content.strip())
         return {
-            "name": data.get("speaker_name", "Motivational Speaker"),
-            "role": data.get("role", "Inspirational Leader"),
+            "name": data.get("speaker_name", "Líder Motivacional"),
+            "role": data.get("role", "Mente • Disciplina • Crecimiento"),
             "confidence": 0.85,
         }
     except Exception as e:
@@ -363,8 +366,8 @@ def detect_speaker_info(video_title: str, video_desc: str, transcript: str) -> d
         # Regex search for common naming patterns: "Speaker: [Name]" or "[Name] - Motivational Video"
         match = re.search(r'(?:speaker|speech by|with)\s*[:\-–—]\s*([A-Za-z\s]+)', video_title, re.IGNORECASE)
         if match:
-            return {"name": match.group(1).strip().title(), "role": "Motivational Leader", "confidence": 0.6}
-        return {"name": "Motivational Leader", "role": "Inspiring Speech", "confidence": 0.5}
+            return {"name": match.group(1).strip().title(), "role": "Conferenciante Motivacional", "confidence": 0.6}
+        return {"name": "Líder Motivacional", "role": "Mente • Disciplina • Crecimiento", "confidence": 0.5}
 
 
 def _create_circular_avatar(image_path: str, size: int = 110) -> Image.Image:
@@ -442,11 +445,13 @@ def generate_speaker_badge_overlay(
     height: int = 1080,
 ) -> str:
     """
-    Renders a professional 1080p overlay:
-    1. If a speaker cutout image is provided, places the cutout in the bottom-left corner (~20% screen area).
-    2. Renders an aesthetic top-left channel / speaker nameplate bar (dark glassmorphism + gold accents).
-    3. Never inserts random/unrequested thumbnail images.
+    Renders a balanced 1080p/vertical broadcast overlay:
+    1. Bottom-left speaker cutout anchored flush at x=0 with soft studio drop-shadow.
+    2. Compact top-left frosted glass nameplate positioned clear of YouTube hover titles.
+    3. Subtle top-right Hábitos de Acero channel watermark stamp.
     """
+    from PIL import ImageFilter
+
     if not output_path:
         output_path = os.path.join(config.TEMP_DIR, "speaker_badge_overlay.png")
     out_dir = os.path.dirname(output_path)
@@ -454,22 +459,26 @@ def generate_speaker_badge_overlay(
         os.makedirs(out_dir, exist_ok=True)
 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(canvas)
+    assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
     font_path = config.FONT_PATH if os.path.exists(config.FONT_PATH) else "arialbd.ttf"
     try:
-        font_name = ImageFont.truetype(font_path, 21)
-        font_sub = ImageFont.truetype(font_path, 13)
+        font_name = ImageFont.truetype(font_path, 22)
+        font_sub = ImageFont.truetype(font_path, 14)
+        font_wm = ImageFont.truetype(font_path, 15)
     except Exception:
         font_name = ImageFont.load_default()
         font_sub = ImageFont.load_default()
+        font_wm = ImageFont.load_default()
 
     display_name = (speaker_name or "CONFERENCIA MOTIVACIONAL").upper().strip()
     role_text = (speaker_role or "Mente • Disciplina • Crecimiento").strip()
+    if "physician" in role_text.lower() or role_text.lower() == "author":
+        role_text = "Médico, Cirujano y Autor"
 
-    # ── 1. Bottom-Left Speaker Cutout Placement ─────────────────────────────
+    # ── 1. Bottom-Left Speaker Cutout Placement (Flush x=0 + soft shadow) ──
     if not avatar_image_path:
-        default_asset = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "speaker_cutout.png")
+        default_asset = os.path.join(assets_dir, "speaker_cutout.png")
         if os.path.exists(default_asset):
             avatar_image_path = default_asset
 
@@ -488,7 +497,6 @@ def generate_speaker_badge_overlay(
                 cutout_img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
             elif image_str.startswith("http://") or image_str.startswith("https://"):
                 import io
-                import requests
                 resp = requests.get(image_str, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
                 if resp.status_code == 200:
                     cutout_img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
@@ -500,48 +508,102 @@ def generate_speaker_badge_overlay(
 
     if cutout_img is not None:
         try:
-            # Resize cutout to sit in bottom-left (~40% height = 432px for 1080p, taking ~20% of area)
-            target_h = int(height * 0.40)
+            is_portrait = height > width
+            target_h = int(height * (0.24 if is_portrait else 0.36))
             scale = target_h / cutout_img.height
             target_w = int(cutout_img.width * scale)
             cutout_resized = cutout_img.resize((target_w, target_h), Image.LANCZOS)
-            
-            # Position flush to bottom-left with 35px margin
-            pos_x = 35
+
+            pos_x = 0  # Anchor flush to left border so cropped shoulder never floats
             pos_y = height - target_h
+
+            # Soft ambient studio drop-shadow behind cutout for separation on bright footage
+            alpha_ch = cutout_resized.split()[3]
+            shadow_silhouette = Image.new("RGBA", cutout_resized.size, (0, 0, 0, 115))
+            shadow_silhouette.putalpha(alpha_ch.point(lambda p: int(p * 0.45)))
+            shadow_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            shadow_layer.paste(shadow_silhouette, (pos_x + 8, pos_y - 4), shadow_silhouette)
+            shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=10))
+            canvas = Image.alpha_composite(canvas, shadow_layer)
+
             canvas.paste(cutout_resized, (pos_x, pos_y), cutout_resized)
-            print(f"[youtube_extractor] Placed speaker cutout in bottom-left ({target_w}x{target_h}px)")
+            print(f"[youtube_extractor] Placed speaker cutout flush-left ({target_w}x{target_h}px)")
         except Exception as e:
             print(f"[youtube_extractor] Cutout placement error: {e}")
 
-    # ── 2. Top-Left Aesthetic Nameplate Bar (No random thumbnail images) ────
-    bar_x = 45
-    bar_y = 45
-    name_bbox = draw.textbbox((0, 0), display_name, font=font_name)
-    role_bbox = draw.textbbox((0, 0), role_text, font=font_sub)
+    # ── 2. Top-Left Aesthetic Nameplate Bar (Clear of YT title bar + tight fit) ──
+    draw_tmp = ImageDraw.Draw(canvas)
+    bar_x = 36
+    bar_y = 74
+    name_bbox = draw_tmp.textbbox((0, 0), display_name, font=font_name)
+    role_bbox = draw_tmp.textbbox((0, 0), role_text, font=font_sub)
     text_w = max(name_bbox[2] - name_bbox[0], role_bbox[2] - role_bbox[0])
-    bar_w = max(340, text_w + 50)
-    bar_h = 66
+    bar_w = max(230, text_w + 54)
+    bar_h = 68
 
-    # Sleek dark frosted glass capsule with subtle gold accent outline
+    shadow_bar = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow_bar).rounded_rectangle(
+        [bar_x + 2, bar_y + 4, bar_x + bar_w + 2, bar_y + bar_h + 4],
+        radius=14,
+        fill=(0, 0, 0, 130),
+    )
+    shadow_bar = shadow_bar.filter(ImageFilter.GaussianBlur(radius=6))
+    canvas = Image.alpha_composite(canvas, shadow_bar)
+
+    draw = ImageDraw.Draw(canvas)
     draw.rounded_rectangle(
         [bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
         radius=14,
-        fill=(12, 16, 26, 220),
-        outline=(255, 220, 50, 180),
+        fill=(12, 16, 26, 212),
+        outline=(255, 214, 52, 200),
         width=2,
     )
-
-    # Accent left gold indicator bar
     draw.rounded_rectangle(
-        [bar_x + 6, bar_y + 10, bar_x + 10, bar_y + bar_h - 10],
+        [bar_x + 10, bar_y + 12, bar_x + 14, bar_y + bar_h - 12],
         radius=2,
-        fill=(255, 220, 50, 255),
+        fill=(255, 214, 52, 255),
     )
+    draw.text((bar_x + 26, bar_y + 10), display_name, font=font_name, fill=(255, 255, 255, 255))
+    draw.text((bar_x + 26, bar_y + 39), role_text, font=font_sub, fill=(255, 218, 64, 245))
 
-    # Text content inside top-left bar
-    draw.text((bar_x + 22, bar_y + 10), display_name, font=font_name, fill=(255, 255, 255, 255))
-    draw.text((bar_x + 22, bar_y + 38), role_text, font=font_sub, fill=(255, 220, 50, 240))
+    # ── 3. Subtle Top-Right Channel Watermark ("HÁBITOS DE ACERO") ──────────
+    wm_text = "HÁBITOS DE ACERO"
+    wm_bbox = draw.textbbox((0, 0), wm_text, font=font_wm)
+    wm_tw = wm_bbox[2] - wm_bbox[0]
+    wm_th = wm_bbox[3] - wm_bbox[1]
+    logo_path = os.path.join(assets_dir, "channel_logo.jpg")
+    icon_sz = 36
+    has_logo = os.path.exists(logo_path)
+    wm_pad_x = 14
+    wm_gap = 10 if has_logo else 0
+    wm_w = wm_pad_x * 2 + (icon_sz if has_logo else 0) + wm_gap + wm_tw
+    wm_h = 48
+    wm_x = width - 36 - wm_w
+    wm_y = bar_y + (bar_h - wm_h) // 2
+
+    wm_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    wm_draw = ImageDraw.Draw(wm_layer)
+    wm_draw.rounded_rectangle(
+        [wm_x, wm_y, wm_x + wm_w, wm_y + wm_h],
+        radius=wm_h // 2,
+        fill=(12, 16, 26, 168),
+        outline=(255, 214, 52, 145),
+        width=1,
+    )
+    if has_logo:
+        try:
+            circ_logo = ImageOps.fit(Image.open(logo_path).convert("RGBA"), (icon_sz, icon_sz))
+            cmask = Image.new("L", (icon_sz, icon_sz), 0)
+            ImageDraw.Draw(cmask).ellipse([0, 0, icon_sz, icon_sz], fill=255)
+            circ_logo.putalpha(cmask)
+            wm_layer.paste(circ_logo, (wm_x + 8, wm_y + (wm_h - icon_sz) // 2), circ_logo)
+        except Exception:
+            has_logo = False
+
+    wm_tx = wm_x + (8 + icon_sz + wm_gap if has_logo else wm_pad_x)
+    wm_ty = wm_y + (wm_h - wm_th) // 2 - wm_bbox[1]
+    wm_draw.text((wm_tx, wm_ty), wm_text, font=font_wm, fill=(248, 250, 252, 225))
+    canvas = Image.alpha_composite(canvas, wm_layer)
 
     canvas.save(output_path, "PNG")
     print(f"[youtube_extractor] Created speaker badge overlay at: {output_path}")
