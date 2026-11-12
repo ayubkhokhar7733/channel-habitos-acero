@@ -6,8 +6,10 @@
     "duration": 1230,
     "duration_formatted": "20:30",
     "thumbnail": "https://i.ytimg.com/vi/-GO6Nh7P6qs/maxresdefault.jpg",
-    "status": "queued",
-    "added_at": "2026-11-12T20:00:00Z"
+    "status": "processing",
+    "added_at": "2026-11-12T20:00:00Z",
+    "dispatched_at": "2026-11-12T21:09:36Z",
+    "workflow_run_url": "https://github.com/ayubkhokhar7733/channel-habitos-acero/actions/runs/43307444771"
   },
   {
     "id": "0qxbBp66SfY",
