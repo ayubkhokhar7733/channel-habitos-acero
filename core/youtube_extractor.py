@@ -20,6 +20,24 @@ import config
 # 1. YouTube Audio & Metadata Extraction (yt-dlp)
 # ---------------------------------------------------------------------------
 
+def _probe_audio_duration(audio_path: str, default: float = 2350.0) -> float:
+    """Measures exact duration in seconds using ffmpeg stderr output."""
+    try:
+        res = subprocess.run(
+            [imageio_ffmpeg.get_ffmpeg_exe(), "-i", audio_path],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL
+        )
+        m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", res.stderr or "")
+        if m:
+            hrs, mins, secs = int(m.group(1)), int(m.group(2)), float(m.group(3))
+            dur = hrs * 3600 + mins * 60 + secs
+            if dur > 1.0:
+                return round(dur, 2)
+    except Exception:
+        pass
+    return default
+
+
 def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict:
     """
     Downloads audio track and extracts comprehensive metadata from a YouTube URL.
@@ -33,18 +51,45 @@ def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict
 
     print(f"[youtube_extractor] Fetching audio & metadata from: {url}")
 
-    # 0. Check for pre-cached/committed incoming audio (bypasses YouTube bot block completely!)
+    # 0. Check for pre-cached/committed incoming audio (supports single file, multi-part chunks, and any audio format)
+    import glob
     video_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
     video_id = video_id_match.group(1) if video_id_match else "source"
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    incoming_dir = os.path.join(repo_root, "data", "incoming_audio")
+
+    # Reassemble chunked uploads (e.g., <vid>_audio.mp3.part000, .part001) uploaded from web dashboard
+    for ext in ["mp3", "m4a", "wav", "webm", "opus"]:
+        parts = sorted(glob.glob(os.path.join(incoming_dir, f"{video_id}_audio.{ext}.part*")))
+        if parts:
+            joined_path = os.path.join(output_dir, f"{video_id}_source.{ext}")
+            with open(joined_path, "wb") as out_f:
+                for p in parts:
+                    with open(p, "rb") as pf:
+                        out_f.write(pf.read())
+            print(f"[youtube_extractor] Reassembled {len(parts)} dashboard audio chunks -> {joined_path}")
+            if ext != "mp3":
+                mp3_out = os.path.join(output_dir, f"{video_id}_source.mp3")
+                subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", joined_path, "-vn", "-ab", "192k", mp3_out], check=False)
+            break
+
     cache_candidates = [
-        os.path.join(repo_root, "data", "incoming_audio", f"{video_id}_audio.mp3"),
+        os.path.join(incoming_dir, f"{video_id}_audio.mp3"),
         os.path.join(output_dir, f"{video_id}_source.mp3"),
     ]
+    for ext in ["m4a", "wav", "webm", "opus"]:
+        raw_in = os.path.join(incoming_dir, f"{video_id}_audio.{ext}")
+        if os.path.exists(raw_in) and os.path.getsize(raw_in) > 1000:
+            mp3_conv = os.path.join(output_dir, f"{video_id}_source.mp3")
+            subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", raw_in, "-vn", "-ab", "192k", mp3_conv], check=False)
+            if os.path.exists(mp3_conv):
+                cache_candidates.insert(0, mp3_conv)
+            break
+
     for c_path in cache_candidates:
         if os.path.exists(c_path) and os.path.getsize(c_path) > 1000:
             print(f"[youtube_extractor] Found local cached audio: {c_path} ({os.path.getsize(c_path)/1024/1024:.2f} MB) - skipping YouTube download!")
-            info_json_path = os.path.join(repo_root, "data", "incoming_audio", f"{video_id}_info.json")
+            info_json_path = os.path.join(incoming_dir, f"{video_id}_info.json")
             if os.path.exists(info_json_path):
                 try:
                     with open(info_json_path, "r", encoding="utf-8") as f:
@@ -54,14 +99,26 @@ def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict
                 except Exception as e:
                     print(f"[youtube_extractor] Warning loading {info_json_path}: {e}")
 
+            oembed_title = "Cómo Transformar Tu Mente y Hábitos Diarios | Dr Mario"
+            oembed_author = "Hábitos de Acero"
+            try:
+                oe = requests.get(f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json", timeout=6)
+                if oe.status_code == 200:
+                    oe_data = oe.json()
+                    oembed_title = oe_data.get("title") or oembed_title
+                    oembed_author = oe_data.get("author_name") or oembed_author
+            except Exception:
+                pass
+
+            actual_dur = _probe_audio_duration(c_path, default=2350.0)
             return {
                 "audio_path": c_path,
                 "video_id": video_id,
-                "title": "Cómo Transformar Tu Mente y Hábitos Diarios | Dr Mario",
+                "title": oembed_title,
                 "description": "#drmario #habitosdeacero #desarrollopersonal #disciplina\nEn este video descubrirás herramientas prácticas de liderazgo, psicología y hábitos de alto rendimiento.",
                 "tags": ["dr mario", "mario alonso puig", "habitos de acero", "desarrollo personal", "disciplina", "psicologia"],
-                "uploader": "Hábitos de Acero",
-                "duration": 2350.0,
+                "uploader": oembed_author,
+                "duration": actual_dur,
                 "thumbnail_url": f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
                 "webpage_url": url,
             }
