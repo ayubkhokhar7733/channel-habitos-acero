@@ -252,8 +252,8 @@ def generate_metadata(script: dict, topic: str = "", mock: bool = False) -> dict
         from openai import OpenAI
         client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
         GROQ_MODELS = [
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
             "groq/compound-mini",
         ]
 
@@ -460,7 +460,7 @@ def spin_motivational_metadata(
         )
 
         resp = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             response_format={"type": "json_object"},
