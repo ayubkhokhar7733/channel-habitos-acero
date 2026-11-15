@@ -24,8 +24,9 @@
     "duration": 1243,
     "duration_formatted": "20:43",
     "thumbnail": "https://i.ytimg.com/vi_webp/0qxbBp66SfY/maxresdefault.webp",
-    "status": "queued",
-    "added_at": "2026-11-12T20:00:00Z"
+    "status": "completed",
+    "added_at": "2026-11-12T20:00:00Z",
+    "completed_at": "2026-11-15T10:01:53.040Z"
   },
   {
     "id": "knMmEaLiPkg",
