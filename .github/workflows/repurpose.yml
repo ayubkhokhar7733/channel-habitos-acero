@@ -170,7 +170,7 @@ jobs:
         with:
           name: habitos-de-acero-output
           path: |
-          output/**
-          !output/**/*.mp4
-          !output/*.mp4/
+            output/**
+            !output/**/*.mp4
+            !output/*.mp4
           retention-days: 1
