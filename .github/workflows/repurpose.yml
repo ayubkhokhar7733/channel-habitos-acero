@@ -169,5 +169,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: habitos-de-acero-output
-          path: output/
-          retention-days: 14
+          path: |
+          output/**
+          !output/**/*.mp4
+          !output/*.mp4/
+          retention-days: 1
