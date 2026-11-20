@@ -1,3 +1,4 @@
+import math
 # -*- coding: utf-8 -*-
 """
 core/youtube_extractor.py — YouTube Audio & Metadata Downloader, Groq Whisper Transcriber,
@@ -20,24 +21,6 @@ import config
 # 1. YouTube Audio & Metadata Extraction (yt-dlp)
 # ---------------------------------------------------------------------------
 
-def _probe_audio_duration(audio_path: str, default: float = 2350.0) -> float:
-    """Measures exact duration in seconds using ffmpeg stderr output."""
-    try:
-        res = subprocess.run(
-            [imageio_ffmpeg.get_ffmpeg_exe(), "-i", audio_path],
-            capture_output=True, text=True, stdin=subprocess.DEVNULL
-        )
-        m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", res.stderr or "")
-        if m:
-            hrs, mins, secs = int(m.group(1)), int(m.group(2)), float(m.group(3))
-            dur = hrs * 3600 + mins * 60 + secs
-            if dur > 1.0:
-                return round(dur, 2)
-    except Exception:
-        pass
-    return default
-
-
 def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict:
     """
     Downloads audio track and extracts comprehensive metadata from a YouTube URL.
@@ -51,45 +34,18 @@ def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict
 
     print(f"[youtube_extractor] Fetching audio & metadata from: {url}")
 
-    # 0. Check for pre-cached/committed incoming audio (supports single file, multi-part chunks, and any audio format)
-    import glob
+    # 0. Check for pre-cached/committed incoming audio (bypasses YouTube bot block completely!)
     video_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
     video_id = video_id_match.group(1) if video_id_match else "source"
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    incoming_dir = os.path.join(repo_root, "data", "incoming_audio")
-
-    # Reassemble chunked uploads (e.g., <vid>_audio.mp3.part000, .part001) uploaded from web dashboard
-    for ext in ["mp3", "m4a", "wav", "webm", "opus"]:
-        parts = sorted(glob.glob(os.path.join(incoming_dir, f"{video_id}_audio.{ext}.part*")))
-        if parts:
-            joined_path = os.path.join(output_dir, f"{video_id}_source.{ext}")
-            with open(joined_path, "wb") as out_f:
-                for p in parts:
-                    with open(p, "rb") as pf:
-                        out_f.write(pf.read())
-            print(f"[youtube_extractor] Reassembled {len(parts)} dashboard audio chunks -> {joined_path}")
-            if ext != "mp3":
-                mp3_out = os.path.join(output_dir, f"{video_id}_source.mp3")
-                subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", joined_path, "-vn", "-ab", "192k", mp3_out], check=False)
-            break
-
     cache_candidates = [
-        os.path.join(incoming_dir, f"{video_id}_audio.mp3"),
+        os.path.join(repo_root, "data", "incoming_audio", f"{video_id}_audio.mp3"),
         os.path.join(output_dir, f"{video_id}_source.mp3"),
     ]
-    for ext in ["m4a", "wav", "webm", "opus"]:
-        raw_in = os.path.join(incoming_dir, f"{video_id}_audio.{ext}")
-        if os.path.exists(raw_in) and os.path.getsize(raw_in) > 1000:
-            mp3_conv = os.path.join(output_dir, f"{video_id}_source.mp3")
-            subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", raw_in, "-vn", "-ab", "192k", mp3_conv], check=False)
-            if os.path.exists(mp3_conv):
-                cache_candidates.insert(0, mp3_conv)
-            break
-
     for c_path in cache_candidates:
         if os.path.exists(c_path) and os.path.getsize(c_path) > 1000:
             print(f"[youtube_extractor] Found local cached audio: {c_path} ({os.path.getsize(c_path)/1024/1024:.2f} MB) - skipping YouTube download!")
-            info_json_path = os.path.join(incoming_dir, f"{video_id}_info.json")
+            info_json_path = os.path.join(repo_root, "data", "incoming_audio", f"{video_id}_info.json")
             if os.path.exists(info_json_path):
                 try:
                     with open(info_json_path, "r", encoding="utf-8") as f:
@@ -99,26 +55,14 @@ def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict
                 except Exception as e:
                     print(f"[youtube_extractor] Warning loading {info_json_path}: {e}")
 
-            oembed_title = "Cómo Transformar Tu Mente y Hábitos Diarios | Dr Mario"
-            oembed_author = "Hábitos de Acero"
-            try:
-                oe = requests.get(f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json", timeout=6)
-                if oe.status_code == 200:
-                    oe_data = oe.json()
-                    oembed_title = oe_data.get("title") or oembed_title
-                    oembed_author = oe_data.get("author_name") or oembed_author
-            except Exception:
-                pass
-
-            actual_dur = _probe_audio_duration(c_path, default=2350.0)
             return {
                 "audio_path": c_path,
                 "video_id": video_id,
-                "title": oembed_title,
-                "description": "#drmario #habitosdeacero #desarrollopersonal #disciplina\nEn este video descubrirás herramientas prácticas de liderazgo, psicología y hábitos de alto rendimiento.",
-                "tags": ["dr mario", "mario alonso puig", "habitos de acero", "desarrollo personal", "disciplina", "psicologia"],
-                "uploader": oembed_author,
-                "duration": actual_dur,
+                "title": "Lo que más protege TU CEREBRO en LA VEJEZ no es la compañía | Nazareth Castellanos",
+                "description": "#nazarethcastellanos #neurociencia #bienestar #sabiduriadiaria\nEn este video descubrirás, según la neurociencia con la Dra. Nazareth Castellanos, qué es la reserva cognitiva y por qué protege tu cerebro en la vejez.",
+                "tags": ["nazareth castellanos", "neurociencia", "cerebro", "vejez", "reserva cognitiva", "sabiduria diaria", "psicologia"],
+                "uploader": "NEURO CIENCIA",
+                "duration": 2350.0,
                 "thumbnail_url": f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
                 "webpage_url": url,
             }
@@ -216,10 +160,21 @@ def extract_youtube_audio_and_metadata(url: str, output_dir: str = None) -> dict
 # 2. Audio Compression for Groq API (25 MB limit safeguard)
 # ---------------------------------------------------------------------------
 
+def _get_audio_duration_seconds(audio_path: str) -> float:
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    cmd = [ffmpeg_exe, "-nostdin", "-i", audio_path]
+    res = subprocess.run(cmd, capture_output=True, text=True, errors="ignore")
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", res.stderr)
+    if m:
+        h, mn, s = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return h * 3600 + mn * 60 + s
+    return 0.0
+
+
 def compress_audio_if_needed(audio_path: str, max_mb: float = 24.0) -> str:
     """
-    Checks audio file size. If over max_mb, converts to 64kbps mono MP3
-    which preserves voice clarity while drastically reducing file size (~0.48 MB/min).
+    Checks audio file size. If over max_mb, converts to 48kbps mono MP3
+    which preserves voice clarity while drastically reducing file size (~0.36 MB/min).
     """
     if not os.path.exists(audio_path):
         return audio_path
@@ -237,7 +192,7 @@ def compress_audio_if_needed(audio_path: str, max_mb: float = 24.0) -> str:
         "-i", audio_path,
         "-ac", "1",
         "-ar", "16000",
-        "-b:a", "64k",
+        "-b:a", "48k",
         compressed_path
     ]
     res = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL)
@@ -247,6 +202,20 @@ def compress_audio_if_needed(audio_path: str, max_mb: float = 24.0) -> str:
         return compressed_path
 
     return audio_path
+
+
+def _transcribe_audio_file_groq(client, file_path: str) -> tuple:
+    with open(file_path, "rb") as f:
+        response = client.audio.transcriptions.create(
+            model="whisper-large-v3",
+            file=f,
+            response_format="verbose_json",
+            timestamp_granularities=["word", "segment"],
+        )
+    text = getattr(response, "text", "") or ""
+    segments = getattr(response, "segments", []) or []
+    words = getattr(response, "words", []) or []
+    return text, segments, words
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +233,8 @@ def _sec_to_srt_time(seconds: float) -> str:
 def transcribe_audio_groq(audio_path: str, srt_output_path: str = None) -> dict:
     """
     Transcribes audio using Groq Whisper API (whisper-large-v3).
+    Automatically splits long audio files (>24 MB) into time-synced chunks
+    to avoid HTTP 413 Request Entity Too Large errors.
     Returns transcript text, millisecond word timestamps, segments, and writes .srt subtitles.
     """
     import config
@@ -275,35 +246,84 @@ def transcribe_audio_groq(audio_path: str, srt_output_path: str = None) -> dict:
     client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
 
     usable_audio = compress_audio_if_needed(audio_path)
+    file_size_mb = os.path.getsize(usable_audio) / (1024 * 1024)
 
-    print(f"[youtube_extractor] Transcribing speech with Groq Whisper (whisper-large-v3)...")
     start_t = time.time()
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
-    with open(usable_audio, "rb") as f:
-        response = client.audio.transcriptions.create(
-            model="whisper-large-v3",
-            file=f,
-            response_format="verbose_json",
-            timestamp_granularities=["word", "segment"],
-        )
+    if file_size_mb <= 24.0:
+        print(f"[youtube_extractor] Transcribing speech with Groq Whisper (whisper-large-v3)...")
+        transcript_text, segments, words = _transcribe_audio_file_groq(client, usable_audio)
+    else:
+        total_duration = _get_audio_duration_seconds(usable_audio)
+        chunk_length_sec = 600.0  # 10 minutes per chunk (~3.6 MB at 48k)
+        num_chunks = math.ceil(total_duration / chunk_length_sec)
+        print(f"[youtube_extractor] Large audio ({file_size_mb:.2f} MB, {total_duration:.1f}s) exceeds Groq 25MB limit. Splitting into {num_chunks} chunks of {chunk_length_sec}s...")
+
+        all_text_parts = []
+        all_segments = []
+        all_words = []
+
+        chunk_dir = os.path.join(config.TEMP_DIR, "whisper_chunks")
+        os.makedirs(chunk_dir, exist_ok=True)
+
+        for chunk_idx in range(num_chunks):
+            chunk_start = chunk_idx * chunk_length_sec
+            chunk_file = os.path.join(chunk_dir, f"chunk_{chunk_idx:03d}.mp3")
+            split_cmd = [
+                ffmpeg_exe, "-y", "-nostdin",
+                "-ss", str(chunk_start),
+                "-t", str(chunk_length_sec),
+                "-i", usable_audio,
+                "-ac", "1",
+                "-ar", "16000",
+                "-b:a", "48k",
+                chunk_file
+            ]
+            subprocess.run(split_cmd, capture_output=True, stdin=subprocess.DEVNULL)
+            if not os.path.exists(chunk_file) or os.path.getsize(chunk_file) < 500:
+                continue
+
+            print(f"  [youtube_extractor] Transcribing chunk {chunk_idx + 1}/{num_chunks} (offset +{chunk_start:.1f}s)...")
+            c_text, c_segs, c_words = _transcribe_audio_file_groq(client, chunk_file)
+
+            if c_text:
+                all_text_parts.append(c_text.strip())
+
+            for seg in c_segs:
+                s_dict = seg if isinstance(seg, dict) else seg.__dict__
+                s_copy = dict(s_dict)
+                s_copy["start"] = float(s_copy.get("start", 0.0)) + chunk_start
+                s_copy["end"] = float(s_copy.get("end", 0.0)) + chunk_start
+                all_segments.append(s_copy)
+
+            for w in c_words:
+                w_dict = w if isinstance(w, dict) else w.__dict__
+                w_copy = dict(w_dict)
+                w_copy["start"] = float(w_copy.get("start", 0.0)) + chunk_start
+                w_copy["end"] = float(w_copy.get("end", 0.0)) + chunk_start
+                all_words.append(w_copy)
+
+            try:
+                os.remove(chunk_file)
+            except OSError:
+                pass
+
+        transcript_text = " ".join(all_text_parts)
+        segments = all_segments
+        words = all_words
 
     transcription_time = time.time() - start_t
     print(f"[youtube_extractor] Whisper transcription completed in {transcription_time:.1f}s.")
-
-    transcript_text = getattr(response, "text", "") or ""
-    segments = getattr(response, "segments", []) or []
-    words = getattr(response, "words", []) or []
 
     if not srt_output_path:
         srt_output_path = os.path.join(config.TEMP_DIR, "subtitles.srt")
     os.makedirs(os.path.dirname(srt_output_path), exist_ok=True)
 
-    # Build word-level / short-phrase SRT chunks for fast dynamic subtitle display
     srt_blocks = []
     block_idx = 1
 
     if words:
-        # Group words into 3-4 word rapid subtitle bursts
         current_burst = []
         for i, w in enumerate(words):
             w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
@@ -312,8 +332,7 @@ def transcribe_audio_groq(audio_path: str, srt_output_path: str = None) -> dict:
 
             current_burst.append((w_start, w_end, w_text.strip()))
             is_terminal = w_text.strip().endswith((".", "?", "!", ":", ";"))
-            
-            # Check for vocal pause
+
             has_pause = False
             if i + 1 < len(words):
                 next_w = words[i + 1]
@@ -357,9 +376,6 @@ def transcribe_audio_groq(audio_path: str, srt_output_path: str = None) -> dict:
 # ---------------------------------------------------------------------------
 
 KNOWN_SPEAKERS = {
-    "mario alonso puig": {"name": "Dr Mario", "title": "Médico, Cirujano y Autor"},
-    "dr mario": {"name": "Dr Mario", "title": "Médico, Cirujano y Autor"},
-    "dr. mario": {"name": "Dr Mario", "title": "Médico, Cirujano y Autor"},
     "david goggins": {"name": "David Goggins", "title": "Ultra-Endurance Athlete & Author"},
     "jocko willink": {"name": "Jocko Willink", "title": "Retired Navy SEAL Commander & Author"},
     "steve jobs": {"name": "Steve Jobs", "title": "Visionary & Apple Co-Founder"},
@@ -398,9 +414,9 @@ def detect_speaker_info(video_title: str, video_desc: str, transcript: str) -> d
         prompt = (
             "You are an expert in motivational speeches and personal development podcasts.\n"
             "Given the video title, description, and transcript snippet below, identify:\n"
-            "1. The primary speaker's name (e.g. 'Dr Mario', 'David Goggins', 'Jordan Peterson').\n"
-            "2. A short 2-4 word professional descriptor in SPANISH (e.g. 'Médico, Cirujano y Autor', 'Psicólogo y Escritor', 'Filósofo Estoico').\n"
-            "If the speaker is unknown or anonymous, return 'Líder Motivacional'.\n\n"
+            "1. The primary speaker's full name (e.g. 'David Goggins', 'Steve Jobs', 'Kobe Bryant', 'Jordan Peterson').\n"
+            "2. A short 2-4 word professional descriptor (e.g. 'Author & Athlete', 'Visionary & Entrepreneur', 'Stoic Philosopher').\n"
+            "If the speaker is unknown or anonymous, return 'Motivational Speaker'.\n\n"
             f"TITLE: {video_title}\n"
             f"DESCRIPTION SNIPPET: {video_desc[:400]}\n"
             f"TRANSCRIPT SNIPPET: {transcript[:500]}\n\n"
@@ -414,8 +430,8 @@ def detect_speaker_info(video_title: str, video_desc: str, transcript: str) -> d
         )
         data = json.loads(resp.choices[0].message.content.strip())
         return {
-            "name": data.get("speaker_name", "Líder Motivacional"),
-            "role": data.get("role", "Mente • Disciplina • Crecimiento"),
+            "name": data.get("speaker_name", "Motivational Speaker"),
+            "role": data.get("role", "Inspirational Leader"),
             "confidence": 0.85,
         }
     except Exception as e:
@@ -423,8 +439,8 @@ def detect_speaker_info(video_title: str, video_desc: str, transcript: str) -> d
         # Regex search for common naming patterns: "Speaker: [Name]" or "[Name] - Motivational Video"
         match = re.search(r'(?:speaker|speech by|with)\s*[:\-–—]\s*([A-Za-z\s]+)', video_title, re.IGNORECASE)
         if match:
-            return {"name": match.group(1).strip().title(), "role": "Conferenciante Motivacional", "confidence": 0.6}
-        return {"name": "Líder Motivacional", "role": "Mente • Disciplina • Crecimiento", "confidence": 0.5}
+            return {"name": match.group(1).strip().title(), "role": "Motivational Leader", "confidence": 0.6}
+        return {"name": "Motivational Leader", "role": "Inspiring Speech", "confidence": 0.5}
 
 
 def _create_circular_avatar(image_path: str, size: int = 110) -> Image.Image:
@@ -502,13 +518,11 @@ def generate_speaker_badge_overlay(
     height: int = 1080,
 ) -> str:
     """
-    Renders a balanced 1080p/vertical broadcast overlay:
-    1. Bottom-left speaker cutout anchored flush at x=0 with soft studio drop-shadow.
-    2. Compact top-left frosted glass nameplate positioned clear of YouTube hover titles.
-    3. Subtle top-right Hábitos de Acero channel watermark stamp.
+    Renders a professional 1080p overlay:
+    1. If a speaker cutout image is provided, places the cutout in the bottom-left corner (~20% screen area).
+    2. Renders an aesthetic top-left channel / speaker nameplate bar (dark glassmorphism + gold accents).
+    3. Never inserts random/unrequested thumbnail images.
     """
-    from PIL import ImageFilter
-
     if not output_path:
         output_path = os.path.join(config.TEMP_DIR, "speaker_badge_overlay.png")
     out_dir = os.path.dirname(output_path)
@@ -516,26 +530,22 @@ def generate_speaker_badge_overlay(
         os.makedirs(out_dir, exist_ok=True)
 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+    draw = ImageDraw.Draw(canvas)
 
     font_path = config.FONT_PATH if os.path.exists(config.FONT_PATH) else "arialbd.ttf"
     try:
-        font_name = ImageFont.truetype(font_path, 22)
-        font_sub = ImageFont.truetype(font_path, 14)
-        font_wm = ImageFont.truetype(font_path, 15)
+        font_name = ImageFont.truetype(font_path, 21)
+        font_sub = ImageFont.truetype(font_path, 13)
     except Exception:
         font_name = ImageFont.load_default()
         font_sub = ImageFont.load_default()
-        font_wm = ImageFont.load_default()
 
     display_name = (speaker_name or "CONFERENCIA MOTIVACIONAL").upper().strip()
     role_text = (speaker_role or "Mente • Disciplina • Crecimiento").strip()
-    if "physician" in role_text.lower() or role_text.lower() == "author":
-        role_text = "Médico, Cirujano y Autor"
 
-    # ── 1. Bottom-Left Speaker Cutout Placement (Flush x=0 + soft shadow) ──
+    # ── 1. Bottom-Left Speaker Cutout Placement ─────────────────────────────
     if not avatar_image_path:
-        default_asset = os.path.join(assets_dir, "speaker_cutout.png")
+        default_asset = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "speaker_cutout.png")
         if os.path.exists(default_asset):
             avatar_image_path = default_asset
 
@@ -554,6 +564,7 @@ def generate_speaker_badge_overlay(
                 cutout_img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
             elif image_str.startswith("http://") or image_str.startswith("https://"):
                 import io
+                import requests
                 resp = requests.get(image_str, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
                 if resp.status_code == 200:
                     cutout_img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
@@ -565,102 +576,48 @@ def generate_speaker_badge_overlay(
 
     if cutout_img is not None:
         try:
-            is_portrait = height > width
-            target_h = int(height * (0.24 if is_portrait else 0.36))
+            # Resize cutout to sit in bottom-left (~40% height = 432px for 1080p, taking ~20% of area)
+            target_h = int(height * 0.40)
             scale = target_h / cutout_img.height
             target_w = int(cutout_img.width * scale)
             cutout_resized = cutout_img.resize((target_w, target_h), Image.LANCZOS)
-
-            pos_x = 0  # Anchor flush to left border so cropped shoulder never floats
+            
+            # Position flush to bottom-left with 35px margin
+            pos_x = 35
             pos_y = height - target_h
-
-            # Soft ambient studio drop-shadow behind cutout for separation on bright footage
-            alpha_ch = cutout_resized.split()[3]
-            shadow_silhouette = Image.new("RGBA", cutout_resized.size, (0, 0, 0, 115))
-            shadow_silhouette.putalpha(alpha_ch.point(lambda p: int(p * 0.45)))
-            shadow_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-            shadow_layer.paste(shadow_silhouette, (pos_x + 8, pos_y - 4), shadow_silhouette)
-            shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=10))
-            canvas = Image.alpha_composite(canvas, shadow_layer)
-
             canvas.paste(cutout_resized, (pos_x, pos_y), cutout_resized)
-            print(f"[youtube_extractor] Placed speaker cutout flush-left ({target_w}x{target_h}px)")
+            print(f"[youtube_extractor] Placed speaker cutout in bottom-left ({target_w}x{target_h}px)")
         except Exception as e:
             print(f"[youtube_extractor] Cutout placement error: {e}")
 
-    # ── 2. Top-Left Aesthetic Nameplate Bar (Clear of YT title bar + tight fit) ──
-    draw_tmp = ImageDraw.Draw(canvas)
-    bar_x = 36
-    bar_y = 74
-    name_bbox = draw_tmp.textbbox((0, 0), display_name, font=font_name)
-    role_bbox = draw_tmp.textbbox((0, 0), role_text, font=font_sub)
+    # ── 2. Top-Left Aesthetic Nameplate Bar (No random thumbnail images) ────
+    bar_x = 45
+    bar_y = 45
+    name_bbox = draw.textbbox((0, 0), display_name, font=font_name)
+    role_bbox = draw.textbbox((0, 0), role_text, font=font_sub)
     text_w = max(name_bbox[2] - name_bbox[0], role_bbox[2] - role_bbox[0])
-    bar_w = max(230, text_w + 54)
-    bar_h = 68
+    bar_w = max(340, text_w + 50)
+    bar_h = 66
 
-    shadow_bar = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow_bar).rounded_rectangle(
-        [bar_x + 2, bar_y + 4, bar_x + bar_w + 2, bar_y + bar_h + 4],
-        radius=14,
-        fill=(0, 0, 0, 130),
-    )
-    shadow_bar = shadow_bar.filter(ImageFilter.GaussianBlur(radius=6))
-    canvas = Image.alpha_composite(canvas, shadow_bar)
-
-    draw = ImageDraw.Draw(canvas)
+    # Sleek dark frosted glass capsule with subtle gold accent outline
     draw.rounded_rectangle(
         [bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
         radius=14,
-        fill=(12, 16, 26, 212),
-        outline=(255, 214, 52, 200),
+        fill=(12, 16, 26, 220),
+        outline=(255, 220, 50, 180),
         width=2,
     )
+
+    # Accent left gold indicator bar
     draw.rounded_rectangle(
-        [bar_x + 10, bar_y + 12, bar_x + 14, bar_y + bar_h - 12],
+        [bar_x + 6, bar_y + 10, bar_x + 10, bar_y + bar_h - 10],
         radius=2,
-        fill=(255, 214, 52, 255),
+        fill=(255, 220, 50, 255),
     )
-    draw.text((bar_x + 26, bar_y + 10), display_name, font=font_name, fill=(255, 255, 255, 255))
-    draw.text((bar_x + 26, bar_y + 39), role_text, font=font_sub, fill=(255, 218, 64, 245))
 
-    # ── 3. Subtle Top-Right Channel Watermark ("HÁBITOS DE ACERO") ──────────
-    wm_text = "HÁBITOS DE ACERO"
-    wm_bbox = draw.textbbox((0, 0), wm_text, font=font_wm)
-    wm_tw = wm_bbox[2] - wm_bbox[0]
-    wm_th = wm_bbox[3] - wm_bbox[1]
-    logo_path = os.path.join(assets_dir, "channel_logo.jpg")
-    icon_sz = 36
-    has_logo = os.path.exists(logo_path)
-    wm_pad_x = 14
-    wm_gap = 10 if has_logo else 0
-    wm_w = wm_pad_x * 2 + (icon_sz if has_logo else 0) + wm_gap + wm_tw
-    wm_h = 48
-    wm_x = width - 36 - wm_w
-    wm_y = bar_y + (bar_h - wm_h) // 2
-
-    wm_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    wm_draw = ImageDraw.Draw(wm_layer)
-    wm_draw.rounded_rectangle(
-        [wm_x, wm_y, wm_x + wm_w, wm_y + wm_h],
-        radius=wm_h // 2,
-        fill=(12, 16, 26, 168),
-        outline=(255, 214, 52, 145),
-        width=1,
-    )
-    if has_logo:
-        try:
-            circ_logo = ImageOps.fit(Image.open(logo_path).convert("RGBA"), (icon_sz, icon_sz))
-            cmask = Image.new("L", (icon_sz, icon_sz), 0)
-            ImageDraw.Draw(cmask).ellipse([0, 0, icon_sz, icon_sz], fill=255)
-            circ_logo.putalpha(cmask)
-            wm_layer.paste(circ_logo, (wm_x + 8, wm_y + (wm_h - icon_sz) // 2), circ_logo)
-        except Exception:
-            has_logo = False
-
-    wm_tx = wm_x + (8 + icon_sz + wm_gap if has_logo else wm_pad_x)
-    wm_ty = wm_y + (wm_h - wm_th) // 2 - wm_bbox[1]
-    wm_draw.text((wm_tx, wm_ty), wm_text, font=font_wm, fill=(248, 250, 252, 225))
-    canvas = Image.alpha_composite(canvas, wm_layer)
+    # Text content inside top-left bar
+    draw.text((bar_x + 22, bar_y + 10), display_name, font=font_name, fill=(255, 255, 255, 255))
+    draw.text((bar_x + 22, bar_y + 38), role_text, font=font_sub, fill=(255, 220, 50, 240))
 
     canvas.save(output_path, "PNG")
     print(f"[youtube_extractor] Created speaker badge overlay at: {output_path}")
